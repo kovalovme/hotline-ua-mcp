@@ -1,0 +1,5 @@
+# Drop real hotline.ua captures here:
+#   search.html   - saved HTML from https://hotline.ua/ua/search/?q=iphone+15
+#   product.html  - saved HTML from a product detail page
+#   offers.json   - captured XHR response from the "Где купить/Де купити" tab (if a JSON endpoint is in use)
+#   offers.html   - HTML fallback for the offers tab, if JSON is not available
