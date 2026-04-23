@@ -1,0 +1,71 @@
+version: 2
+
+project_name: hotline-ua-mcp
+
+before:
+  hooks:
+    - go mod tidy
+
+builds:
+  - id: hotline-ua-mcp
+    main: ./cmd/hotline-ua-mcp
+    binary: hotline-ua-mcp
+    env:
+      - CGO_ENABLED=0
+    goos:
+      - linux
+      - darwin
+      - windows
+    goarch:
+      - amd64
+      - arm64
+    ignore:
+      - goos: windows
+        goarch: arm64
+    flags:
+      - -trimpath
+    ldflags:
+      - -s -w -X main.version={{ .Version }}
+
+archives:
+  - id: default
+    name_template: "{{ .ProjectName }}_{{ .Version }}_{{ .Os }}_{{ .Arch }}"
+    format: tar.gz
+    format_overrides:
+      - goos: windows
+        format: zip
+    files:
+      - README.md
+      - LICENSE
+      - .claude-plugin/plugin.json
+      - .claude-plugin/marketplace.json
+      - .mcp.json
+
+checksum:
+  name_template: "checksums.txt"
+
+snapshot:
+  version_template: "{{ incpatch .Version }}-next"
+
+changelog:
+  sort: asc
+  use: github
+  filters:
+    exclude:
+      - "^docs:"
+      - "^test:"
+      - "^ci:"
+      - "^chore:"
+
+release:
+  draft: false
+  prerelease: auto
+  name_template: "{{ .ProjectName }} {{ .Tag }}"
+  header: |
+    ## hotline-ua-mcp {{ .Tag }}
+
+    Claude Code plugin for searching hotline.ua.
+
+    Prebuilt binaries below; users who install via `/plugin marketplace add`
+    should check out this tag and run `go build -o bin/hotline-ua-mcp ./cmd/hotline-ua-mcp`
+    unless they grab the archive matching their OS/arch.

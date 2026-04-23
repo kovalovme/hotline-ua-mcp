@@ -15,7 +15,9 @@ import (
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 )
 
-const version = "0.1.0"
+// version is set at build time via -ldflags "-X main.version=...".
+// Defaults to "dev" for local builds.
+var version = "dev"
 
 func main() {
 	logger := log.New(os.Stderr, "[hotline-ua-mcp] ", log.LstdFlags)
