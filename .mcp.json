@@ -1,0 +1,11 @@
+{
+  "mcpServers": {
+    "hotline-ua": {
+      "command": "${CLAUDE_PLUGIN_ROOT}/bin/hotline-ua-mcp",
+      "env": {
+        "HOTLINE_RATE_LIMIT_RPS": "1",
+        "HOTLINE_CACHE_TTL_SEC": "600"
+      }
+    }
+  }
+}

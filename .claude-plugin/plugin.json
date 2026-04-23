@@ -1,0 +1,11 @@
+{
+  "$schema": "https://json.schemastore.org/claude-code-plugin.json",
+  "name": "hotline-ua",
+  "version": "0.1.0",
+  "description": "Search Ukrainian price-comparison site hotline.ua from Claude Code: find products, compare prices, list seller offers.",
+  "author": {
+    "name": "kovalovme"
+  },
+  "homepage": "https://github.com/kovalovme/hotline-ua-mcp",
+  "license": "MIT"
+}
