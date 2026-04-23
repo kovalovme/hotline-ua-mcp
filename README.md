@@ -87,6 +87,36 @@ go vet ./...
 go test ./...
 ```
 
+## Releases
+
+Releases are cut by pushing a `v*` tag. A GitHub Actions workflow
+(`.github/workflows/release.yml`) runs [GoReleaser](https://goreleaser.com)
+which cross-compiles binaries for:
+
+- linux/amd64, linux/arm64
+- darwin/amd64, darwin/arm64
+- windows/amd64
+
+Each archive bundles the binary, `README.md`, `LICENSE`, `.mcp.json`, and the
+`.claude-plugin/` manifests, so it can be extracted into any directory and
+registered with `/plugin marketplace add`. A `checksums.txt` is attached to
+the release.
+
+To cut a release:
+
+```bash
+git tag v0.1.0
+git push origin v0.1.0
+```
+
+GoReleaser injects the tag version into the binary via
+`-ldflags "-X main.version=..."`. You can validate the config locally with:
+
+```bash
+goreleaser check
+goreleaser release --snapshot --clean --skip=publish
+```
+
 ## License
 
 MIT.
