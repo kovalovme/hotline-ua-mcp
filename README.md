@@ -11,13 +11,14 @@ bypass Cloudflare bot checks. UA locale only.
 
 | Tool | Input | Output |
 |---|---|---|
-| `search_products` | `query`, `limit` | product summaries: title, URL, price range, offer count, rating |
+| `search_products` | `query`, `limit`, `page`, `price_min`, `price_max` | product summaries with pagination; searches any category |
 | `get_product` | `url` | full product: title, aggregate price range, rating, specs |
 | `list_offers` | `product_url`, `sort`, `limit`, `in_stock` | seller offers sorted by price |
+| `list_category` | `slug`, `page`, `price_min`, `price_max` | browse a category without a keyword |
 
-**Known limitation:** `search_products` is currently scoped to the smartphones
-category. Results are filtered client-side by keyword — real GraphQL-backed
-search is planned for v1.1.
+`search_products` uses the `search.menu` JSON-RPC to find the best category for
+your query, then fetches server-side filtered results — works across all
+hotline.ua categories, not just smartphones.
 
 ## Install
 
@@ -71,7 +72,7 @@ test/fixtures/          # saved hotline.ua pages for offline tests
 ```bash
 go build ./...
 go vet ./...
-go test ./...          # 11 tests
+go test ./...          # 23 tests
 ```
 
 ## Releases

@@ -66,7 +66,7 @@ Replace `/absolute/path/to/hotline-ua-mcp` with:
 - **Pre-built:** the directory you extracted the archive into (e.g. `~/.local/share/hotline-ua-mcp`).
 - **Source build:** the root of the cloned repo.
 
-After installation Claude Code reads `.mcp.json` and starts the MCP server automatically. The three tools (`search_products`, `get_product`, `list_offers`) become available in every session.
+After installation Claude Code reads `.mcp.json` and starts the MCP server automatically. The four tools (`search_products`, `get_product`, `list_offers`, `list_category`) become available in every session.
 
 ---
 
@@ -131,7 +131,10 @@ The server uses a Chrome 133 TLS fingerprint to bypass Cloudflare bot checks. If
 
 ### Tools return no results for a search query
 
-`search_products` is currently limited to the smartphones category on hotline.ua and applies client-side keyword filtering. Queries for product categories other than smartphones will return zero results. Multi-category search is planned for v0.3.
+Check that your query is in Ukrainian or English. `search_products` uses
+hotline.ua's `search.menu` API to find the right category automatically —
+if a category has zero results for your query the tool will return an empty
+list. Try a broader query or use `list_category` with a known slug.
 
 ### "url must be on hotline.ua"
 
