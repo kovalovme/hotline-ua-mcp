@@ -1,8 +1,8 @@
 # Implementation Status
 
-**As of 2026-04-24.** Describes what is actually built, how it works, and
-what is broken or missing. Complements the planning roadmap
-(`docs/planning/roadmap.md`), which tracks future work.
+**As of 2026-04-24 (updated after v0.2 blocker fixes).** Describes what is
+actually built, how it works, and what is broken or missing. Complements the
+planning roadmap (`docs/planning/roadmap.md`), which tracks future work.
 
 ---
 
@@ -22,10 +22,11 @@ what is broken or missing. Complements the planning roadmap
 
 - 1 req/sec global token-bucket rate limit (configurable via `HOTLINE_RATE_LIMIT_RPS`)
 - In-memory LRU response cache: 256 entries, 10-minute TTL
-- UA string rotation per request
-- Cookie jar (session-level)
+- UA string rotation per request (Chrome 133 strings)
+- Cookie jar (session-level, via `bogdanfinn/tls-client`)
 - `Accept-Language: uk-UA,uk;q=0.9`
-- Standard Go `net/http` TLS — **no JA3/fingerprint spoofing**
+- **`bogdanfinn/tls-client` Chrome_133 JA3 profile** — mimics real Chrome TLS fingerprint to pass Cloudflare bot checks
+- `ErrBotBlock` sentinel: returned on 503/403 responses whose body contains Cloudflare markers (`cloudflare`, `cf-ray`, `just a moment`, `enable javascript`, `challenge`)
 
 ### Scrapers (`internal/scrapers/`)
 
@@ -121,82 +122,53 @@ The fixtures are handcrafted to match the shape of real hotline.ua pages but
 are minimal: only the fields the parsers actually read are present. They are
 not captures of live pages.
 
+### Keyword filtering (`scrapers.FilterByQuery`)
+
+Called by `search_products` after `ParseSearchHTML`. All words in the query
+must appear case-insensitively in the product title. This is a client-side
+workaround for the SSR `?text=` limitation; real server-side search via the
+GraphQL endpoint is deferred to v0.3.
+
 ### Tests
 
-All 7 fixture-driven tests pass (`go test ./...`):
+All 11 tests pass (`go test ./...`):
 
 | Test | File |
 |---|---|
 | `TestParseProductHTML` | `product_test.go` |
 | `TestParseProductHTML_NoJSONLD` | `product_test.go` |
 | `TestParseOffersHTML` | `offers_test.go` |
+| `TestParseOffersHTML_MissingFirmExtraInfo` | `offers_test.go` |
 | `TestParseOffersHTML_NoOffers` | `offers_test.go` |
 | `TestParseSearchHTML` | `search_test.go` |
 | `TestParseSearchHTML_Empty` | `search_test.go` |
+| `TestFilterByQuery` | `search_test.go` |
 | `TestBuildSearchURL` | `search_test.go` |
+| `TestIsBotBlock` | `httpclient/client_test.go` |
+| `TestErrBotBlockSentinel` | `httpclient/client_test.go` |
 
 ---
 
-## Known bugs blocking v0.2 release
+## Resolved bugs (fixed for v0.2)
 
-### 1. Panic in `ParseOffersHTML` on missing `firmExtraInfo`
+### 1. Panic in `ParseOffersHTML` on missing `firmExtraInfo` — FIXED
 
-**File:** `internal/scrapers/offers.go:48`
+`offers.go:48` — replaced unsafe type assertion with `dig(node, "firmExtraInfo", "website")`.
+`TestParseOffersHTML_MissingFirmExtraInfo` verifies the fix.
 
-```go
-ShopURL: shopURL(jsonString(node["firmExtraInfo"].(map[string]any)["website"])),
-```
+### 2. `search_products` keyword filtering — FIXED (client-side)
 
-This is an unsafe type assertion. If any offer node has `firmExtraInfo` as
-`nil`, a non-map type, or absent, the process panics. The fixture happens to
-always include `firmExtraInfo`, so tests pass, but production data will contain
-edge cases.
+`scrapers.FilterByQuery` added: all words in the query must appear
+case-insensitively in the product title. Called by the tool after
+`ParseSearchHTML`. The SSR `?text=` limitation remains; real server-side
+filtering via GraphQL is deferred to v0.3. `TestFilterByQuery` covers the
+behaviour.
 
-**Fix:** Replace with `jsonString(dig(node, "firmExtraInfo", "website"))`.
+### 3. Cloudflare TLS blocking — FIXED
 
-### 2. `search_products` keyword filtering is broken
-
-**File:** `internal/scrapers/search.go:22-33`
-
-`BuildSearchURL` generates:
-```
-https://hotline.ua/ua/mobile/mobilnye-telefony-i-smartfony/?text=iphone+15
-```
-
-The `?text=` query parameter is **not processed by the SSR path** on hotline.ua.
-The catalog page renders identically with or without `?text=`; `searchPhrase`
-in the `__NUXT__` state remains empty. The result is an unfiltered listing of
-all ~5090 smartphones in the category, not a filtered result set.
-
-**Fix options (in order of preference):**
-1. Use the GraphQL endpoint (`/svc/frontend-api/graphql`) — confirmed present
-   via `<link rel="preconnect">` in page source; schema unknown, needs DevTools
-   capture.
-2. Use the internal JSON-RPC search service
-   (`search.search-19-production/api/json-rpc`) — internal hostname, probably
-   not publicly routable; needs verification.
-3. Restrict the hardcoded category and accept that `search_products` is a
-   category browser, not a keyword search, until a real endpoint is found.
-
-### 3. Cloudflare blocks all real HTTP requests
-
-**File:** `internal/httpclient/client.go`
-
-The standard Go `net/http` TLS stack produces a TLS fingerprint that Cloudflare
-identifies as a non-browser client. All direct requests to `hotline.ua` return
-HTTP 503 with a Cloudflare challenge page.
-
-The HTTP client has no `ErrBotBlock` error type; the tool layer receives a
-generic error.
-
-**Fix:**
-- Integrate `github.com/bogdanfinn/tls-client` to spoof a browser JA3
-  fingerprint (Chrome or Firefox profile).
-- Add a distinct `ErrBotBlock` sentinel so the tool layer can surface an
-  actionable message ("Hotline.ua is blocking requests; try again later or
-  reduce request frequency").
-- Add detection: check response status 503 + body prefix to distinguish
-  Cloudflare challenge from a real 503.
+`client.go` rewritten to use `bogdanfinn/tls-client` Chrome_133 profile.
+`ErrBotBlock` sentinel added; detection covers 503/403 + body markers.
+`TestIsBotBlock` and `TestErrBotBlockSentinel` cover the logic.
 
 ---
 

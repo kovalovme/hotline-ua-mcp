@@ -5,6 +5,7 @@ import (
 	"net/url"
 	"strconv"
 	"strings"
+	"unicode"
 
 	"github.com/kovalovme/hotline-ua-mcp/internal/types"
 )
@@ -30,6 +31,37 @@ func queryToSlug(query string) string {
 	v := url.Values{}
 	v.Set("text", strings.TrimSpace(query))
 	return "?" + v.Encode()
+}
+
+// FilterByQuery performs client-side keyword filtering on a product list.
+//
+// The hotline.ua SSR path ignores the ?text= query parameter — the catalog
+// page renders all products in the category regardless of query. This function
+// filters the already-parsed slice by checking that every word in query appears
+// (case-insensitively) in the product title. It is the tool layer's
+// responsibility to call this after ParseSearchHTML.
+func FilterByQuery(results []types.ProductSummary, query string) []types.ProductSummary {
+	words := strings.FieldsFunc(strings.ToLower(query), func(r rune) bool {
+		return unicode.IsSpace(r) || unicode.IsPunct(r)
+	})
+	if len(words) == 0 {
+		return results
+	}
+	out := results[:0:0]
+	for _, r := range results {
+		title := strings.ToLower(r.Title)
+		match := true
+		for _, w := range words {
+			if !strings.Contains(title, w) {
+				match = false
+				break
+			}
+		}
+		if match {
+			out = append(out, r)
+		}
+	}
+	return out
 }
 
 // ParseSearchHTML extracts product summaries from a catalog/search results page.
