@@ -1,11 +1,14 @@
 # Hotline.ua Integration Roadmap
 
-**Status:** v0.1 scaffold shipped. Scrapers are stubbed; real extraction blocked
-on fixture capture and selector work. This doc is the living plan for everything
-downstream. **Section 8 open questions were partially answered via live browser
-recon on 2026-04-24 — see updates inline.**
+**Status:** v0.2 scrapers implemented and all fixture tests passing. Three
+blockers remain before a real-data release (see §5 v0.2 and §8). This doc is
+the living plan for everything downstream. **Section 8 open questions were
+partially answered via live browser recon on 2026-04-24 — see updates inline.**
 
-## 1. Current state (v0.1)
+See `docs/implementation-status.md` for a detailed description of what is
+actually built vs. planned.
+
+## 1. Current state (v0.2-dev)
 
 - MCP stdio server in Go, three tools registered: `search_products`,
   `get_product`, `list_offers`.
@@ -13,8 +16,13 @@ recon on 2026-04-24 — see updates inline.**
   cache, cookie jar, realistic headers.
 - Claude Code plugin manifests + `.mcp.json` + marketplace entry.
 - GoReleaser pipeline triggered on `v*` tags (linux/darwin/windows, amd64/arm64).
-- **Gap:** selector bodies in `internal/scrapers/{search,product,offers}.go`
-  are placeholders marked `TODO(fixture)`. Nothing returns real data yet.
+- All three scrapers implemented and passing fixture-driven tests:
+  - `ParseProductHTML` — schema.org/Product JSON-LD + `window.__NUXT__` specs.
+  - `ParseOffersHTML` — `window.__NUXT__` `state.product.offers.edges`.
+  - `ParseSearchHTML` — `window.__NUXT__` `state.catalog.products.collection`.
+  - `window.__NUXT__` IIFE evaluated in-process via `github.com/dop251/goja`.
+- **Blockers for real data:** Cloudflare TLS blocking; `?text=` search param
+  ignored by SSR; panic risk on missing `firmExtraInfo` (see §5 and §8).
 
 ## 2. Data sources on hotline.ua
 
@@ -115,9 +123,12 @@ Instead, use these stable structural hooks:
 | Price range text | element containing pattern `\d+ – \d+ ₴` |
 | Result count | element containing pattern `\d+ з \d+ товарів` |
 
-JSON-LD (`<script type="application/ld+json">`) and schema.org microdata
-(`itemtype`, `itemprop`) were **not found** on the pages tested. Do not
-assume they are present; parse raw HTML only.
+**Update 2026-04-24 (curl recon, supersedes earlier WebFetch finding):**
+`<script type="application/ld+json">` with `"@type": "Product"` **is present**
+on product pages and is the primary source for `ParseProductHTML`. Earlier
+WebFetch-based recon was incorrect because WebFetch strips script tag content
+when converting HTML to markdown. Always use raw `curl` output when inspecting
+inline `<script>` blocks.
 
 ### 4.3 URL and ID patterns (confirmed via recon)
 
@@ -146,21 +157,21 @@ assume they are present; parse raw HTML only.
 
 ## 5. Feature roadmap
 
-### v0.2 — "Make v1 tools actually return data" (blocks on fixtures)
+### v0.2 — "Make v1 tools actually return data"
 
-- [ ] Capture fixtures: `search.html`, `product.html`, `offers.html`.
-      (JSON offers endpoint was not confirmed; treat HTML as primary path.)
-- [ ] Finalise `ParseSearchHTML` → returns real `ProductSummary` values.
-      Use structural selectors (see §4.2); anchor `href` prefix
-      `/ua/mobile-` (or similar) to find product cards.
-- [ ] Finalise `ParseProductHTML` → returns full `Product` (title via `h1`,
-      price range via `\d+ – \d+ ₴` text pattern, spec rows via `tr/td`).
-- [ ] Implement `ParseOffersHTML` (confirmed primary path: offers are SSR,
-      anchor `a[href^="/go/price/"]`). Retire `ParseOffersJSON` stub unless
-      a real JSON endpoint is discovered.
-- [ ] Fixture-based tests for all three scrapers.
-- [ ] Graceful error mapping: distinguish network error, 503/Cloudflare block,
-      captcha page, "no results", and expose each as an actionable MCP error.
+- [x] Capture fixtures: `test/fixtures/product.html`, `test/fixtures/search.html`.
+- [x] Implement `ParseProductHTML` — JSON-LD primary, `__NUXT__` specs secondary.
+- [x] Implement `ParseOffersHTML` — `__NUXT__` `state.product.offers.edges`.
+- [x] Implement `ParseSearchHTML` — `__NUXT__` `state.catalog.products.collection`.
+- [x] Fixture-based tests for all three scrapers (7 tests, all passing).
+- [ ] **BLOCKER** Fix panic in `ParseOffersHTML` on missing `firmExtraInfo`
+      (see §8).
+- [ ] **BLOCKER** Fix `search_products` keyword filtering — `?text=` param
+      is ignored by SSR; investigate GraphQL endpoint (see §8).
+- [ ] **BLOCKER** Fix Cloudflare TLS blocking — integrate
+      `github.com/bogdanfinn/tls-client` for JA3 spoofing (see §8).
+- [ ] Graceful error mapping: distinct `ErrBotBlock` type for 503/Cloudflare;
+      expose as actionable MCP error.
 
 ### v0.3 — Breadth
 
@@ -280,6 +291,16 @@ From the merchant bid API, the following identifiers exist in Hotline's backend:
 
 ## 8. Risks & open questions
 
+### v0.2 release blockers (must fix before tagging v0.2)
+
+| Blocker | Location | Fix |
+|---|---|---|
+| **Panic on missing `firmExtraInfo`** — unsafe type assertion crashes `ParseOffersHTML` when a node omits `firmExtraInfo` | `internal/scrapers/offers.go:48` | Replace `node["firmExtraInfo"].(map[string]any)["website"]` with `jsonString(dig(node, "firmExtraInfo", "website"))` |
+| **`search_products` returns unfiltered results** — `?text=` query param is ignored by SSR; returns all ~5090 smartphones regardless of query | `internal/scrapers/search.go:22-33` | Investigate `/svc/frontend-api/graphql` endpoint (confirmed present via `<link rel="preconnect">`) with DevTools; capture request/response shape |
+| **Cloudflare TLS blocking** — standard Go `net/http` TLS fingerprint triggers 503 on all live requests; no `ErrBotBlock` type | `internal/httpclient/client.go` | Integrate `github.com/bogdanfinn/tls-client` for JA3/Chrome fingerprint spoofing; add `ErrBotBlock` sentinel |
+
+### Risk table
+
 | Risk | Likelihood | Mitigation |
 |---|---|---|
 | Cloudflare blocks plain HTTP (TLS fingerprint mismatch) | **Confirmed** | Use `tls-client` for JA3 spoofing; document `HOTLINE_TLS_CLIENT=1` env flag |
@@ -302,8 +323,9 @@ From the merchant bid API, the following identifiers exist in Hotline's backend:
 ## 9. Release cadence
 
 - **v0.1** — scaffold (done).
-- **v0.2** — first release with working scrapers. Ship as soon as all three
-  tools return real data for the golden-path queries.
+- **v0.2** — scrapers implemented and tested. **Blocked** on three issues
+  (Cloudflare TLS, broken search, firmExtraInfo panic). Ship once all three
+  blockers are resolved and the tools return real data for golden-path queries.
 - **v0.x** monthly-ish as features land.
 - **v1.0** — when all three v1-scope tools have been stable across at least
   one markup change and CI has been green for a couple of weeks.
