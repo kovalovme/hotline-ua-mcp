@@ -102,3 +102,109 @@ func TestBuildSearchURL(t *testing.T) {
 		t.Errorf("URL should encode the query: got %q", u)
 	}
 }
+
+func TestBuildSearchURLFiltered(t *testing.T) {
+	f := scrapers.SearchFilters{Page: 3, PriceMin: 5000, PriceMax: 20000}
+	u := scrapers.BuildSearchURLFiltered("samsung", f)
+	if !strings.Contains(u, "page=3") {
+		t.Errorf("should contain page=3: got %q", u)
+	}
+	if !strings.Contains(u, "priceMin=5000") {
+		t.Errorf("should contain priceMin=5000: got %q", u)
+	}
+	if !strings.Contains(u, "priceMax=20000") {
+		t.Errorf("should contain priceMax=20000: got %q", u)
+	}
+	if !strings.Contains(u, "text=samsung") {
+		t.Errorf("should contain text=samsung: got %q", u)
+	}
+
+	// page=1 should be omitted (default)
+	u2 := scrapers.BuildSearchURLFiltered("test", scrapers.SearchFilters{Page: 1})
+	if strings.Contains(u2, "page=") {
+		t.Errorf("page=1 should be omitted: got %q", u2)
+	}
+}
+
+func TestBuildCategoryURL(t *testing.T) {
+	u := scrapers.BuildCategoryURL("mobile/mobilnye-telefony-i-smartfony", scrapers.SearchFilters{})
+	if u != "https://hotline.ua/ua/mobile/mobilnye-telefony-i-smartfony/" {
+		t.Errorf("bare category URL: got %q", u)
+	}
+
+	u2 := scrapers.BuildCategoryURL("mobile/mobilnye-telefony-i-smartfony", scrapers.SearchFilters{Page: 2, PriceMax: 15000})
+	if !strings.Contains(u2, "page=2") {
+		t.Errorf("should contain page=2: got %q", u2)
+	}
+	if !strings.Contains(u2, "priceMax=15000") {
+		t.Errorf("should contain priceMax=15000: got %q", u2)
+	}
+
+	// Leading/trailing slashes in slug should be normalised
+	u3 := scrapers.BuildCategoryURL("/mobile/mobilnye-telefony-i-smartfony/", scrapers.SearchFilters{})
+	if u3 != "https://hotline.ua/ua/mobile/mobilnye-telefony-i-smartfony/" {
+		t.Errorf("slug normalisation: got %q", u3)
+	}
+}
+
+func TestParseSearchPage_Pagination(t *testing.T) {
+	html := loadFixture(t, "search.html")
+	products, pagination, err := scrapers.ParseSearchPage(html, 1)
+	if err != nil {
+		t.Fatalf("ParseSearchPage error: %v", err)
+	}
+	if len(products) != 3 {
+		t.Fatalf("product count: got %d, want 3", len(products))
+	}
+	if pagination.TotalItems != 3 {
+		t.Errorf("TotalItems: got %d, want 3", pagination.TotalItems)
+	}
+	if pagination.TotalPages != 1 {
+		t.Errorf("TotalPages: got %d, want 1", pagination.TotalPages)
+	}
+	if pagination.CurrentPage != 1 {
+		t.Errorf("CurrentPage: got %d, want 1", pagination.CurrentPage)
+	}
+	if pagination.HasNextPage {
+		t.Error("HasNextPage should be false for single-page result")
+	}
+	if pagination.NextPage != nil {
+		t.Errorf("NextPage should be nil, got %v", *pagination.NextPage)
+	}
+}
+
+func TestParseSearchPage_DefaultCurrentPage(t *testing.T) {
+	html := loadFixture(t, "search.html")
+	// passing 0 should default to page 1
+	_, pagination, err := scrapers.ParseSearchPage(html, 0)
+	if err != nil {
+		t.Fatalf("ParseSearchPage error: %v", err)
+	}
+	if pagination.CurrentPage != 1 {
+		t.Errorf("CurrentPage: got %d, want 1", pagination.CurrentPage)
+	}
+}
+
+func TestParseSearchPage_MultiPage(t *testing.T) {
+	// Synthetic fixture: 100 total items, 24 per page, last page = 5
+	html := []byte(`<!doctype html><html><body><script>window.__NUXT__={"state":{"catalog":{"products":{"collection":[],"paginationInfo":{"lastPage":5,"totalCount":100,"itemsPerPage":24}}}}};</script></body></html>`)
+	_, pagination, err := scrapers.ParseSearchPage(html, 2)
+	if err != nil {
+		t.Fatalf("ParseSearchPage error: %v", err)
+	}
+	if pagination.TotalItems != 100 {
+		t.Errorf("TotalItems: got %d, want 100", pagination.TotalItems)
+	}
+	if pagination.TotalPages != 5 {
+		t.Errorf("TotalPages: got %d, want 5", pagination.TotalPages)
+	}
+	if pagination.CurrentPage != 2 {
+		t.Errorf("CurrentPage: got %d, want 2", pagination.CurrentPage)
+	}
+	if !pagination.HasNextPage {
+		t.Error("HasNextPage should be true")
+	}
+	if pagination.NextPage == nil || *pagination.NextPage != 3 {
+		t.Errorf("NextPage: want 3, got %v", pagination.NextPage)
+	}
+}

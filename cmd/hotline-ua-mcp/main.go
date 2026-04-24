@@ -47,6 +47,11 @@ func main() {
 		Description: "List seller offers for a hotline.ua product, sorted by price. Each offer includes shop name, price, stock, and outbound URL.",
 	}, tools.ListOffers(client))
 
+	mcp.AddTool(server, &mcp.Tool{
+		Name:        "list_category",
+		Description: "Browse a hotline.ua product category by slug (e.g. 'mobile/mobilnye-telefony-i-smartfony'). Supports pagination and price range filtering. Returns product summaries with pagination hints.",
+	}, tools.ListCategory(client))
+
 	if err := server.Run(context.Background(), &mcp.StdioTransport{}); err != nil {
 		logger.Fatalf("server exited: %v", err)
 	}

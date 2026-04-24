@@ -10,27 +10,66 @@ import (
 	"github.com/kovalovme/hotline-ua-mcp/internal/types"
 )
 
+// SearchFilters holds optional parameters for search and category URLs.
+type SearchFilters struct {
+	Page     int
+	PriceMin float64
+	PriceMax float64
+}
+
 // BuildSearchURL constructs a catalog listing URL for the given query.
 //
 // hotline.ua's global search (`/ua/search/?q=…`) is client-side routed and
 // does not return SSR product data. Catalog section URLs do include product
 // listings in the initial __NUXT__ state. This function encodes the query as
-// a URL-safe path segment and routes to the all-categories search path.
+// a URL-safe query string and routes to the all-categories search path.
 //
 // Live recon (2026-04-24): the search SSR endpoint is internal
 // (search.search-19-production) so a direct category browse is the only
 // fully SSR-backed approach available without GraphQL.
 func BuildSearchURL(query string) string {
-	slug := queryToSlug(query)
-	return fmt.Sprintf("https://hotline.ua/ua/mobile/mobilnye-telefony-i-smartfony/%s", slug)
+	return BuildSearchURLFiltered(query, SearchFilters{})
 }
 
-// queryToSlug converts a search phrase to a URL slug appended as a filter.
-// e.g. "iphone 15" → "?text=iphone+15"  (category-level text filter)
-func queryToSlug(query string) string {
+// BuildSearchURLFiltered builds a search URL with optional pagination and price filters.
+//
+// Pagination uses ?page=N (standard Nuxt.js convention — confirmed as most
+// likely candidate; verify via DevTools if live results differ).
+// Price filter params are ?priceMin=N&priceMax=M.
+func BuildSearchURLFiltered(query string, f SearchFilters) string {
 	v := url.Values{}
 	v.Set("text", strings.TrimSpace(query))
-	return "?" + v.Encode()
+	if f.Page > 1 {
+		v.Set("page", strconv.Itoa(f.Page))
+	}
+	if f.PriceMin > 0 {
+		v.Set("priceMin", strconv.FormatFloat(f.PriceMin, 'f', 0, 64))
+	}
+	if f.PriceMax > 0 {
+		v.Set("priceMax", strconv.FormatFloat(f.PriceMax, 'f', 0, 64))
+	}
+	return "https://hotline.ua/ua/mobile/mobilnye-telefony-i-smartfony/?" + v.Encode()
+}
+
+// BuildCategoryURL constructs a category browse URL with optional pagination
+// and price filters. slug should be the path segment(s) after /ua/, e.g.
+// "mobile/mobilnye-telefony-i-smartfony".
+func BuildCategoryURL(slug string, f SearchFilters) string {
+	base := "https://hotline.ua/ua/" + strings.Trim(slug, "/") + "/"
+	v := url.Values{}
+	if f.Page > 1 {
+		v.Set("page", strconv.Itoa(f.Page))
+	}
+	if f.PriceMin > 0 {
+		v.Set("priceMin", strconv.FormatFloat(f.PriceMin, 'f', 0, 64))
+	}
+	if f.PriceMax > 0 {
+		v.Set("priceMax", strconv.FormatFloat(f.PriceMax, 'f', 0, 64))
+	}
+	if len(v) == 0 {
+		return base
+	}
+	return base + "?" + v.Encode()
 }
 
 // FilterByQuery performs client-side keyword filtering on a product list.
@@ -71,6 +110,27 @@ func ParseSearchHTML(html []byte) ([]types.ProductSummary, error) {
 	nuxt, err := nuxtState(html)
 	if err != nil {
 		return nil, fmt.Errorf("nuxt state: %w", err)
+	}
+	products, _, err := parseSearchNUXT(nuxt, 0)
+	return products, err
+}
+
+// ParseSearchPage extracts product summaries and pagination info from a
+// catalog/search results page. currentPage should be the page number that was
+// requested (1-based); pass 0 to default to page 1.
+func ParseSearchPage(html []byte, currentPage int) ([]types.ProductSummary, types.PaginationInfo, error) {
+	nuxt, err := nuxtState(html)
+	if err != nil {
+		return nil, types.PaginationInfo{}, fmt.Errorf("nuxt state: %w", err)
+	}
+	return parseSearchNUXT(nuxt, currentPage)
+}
+
+// parseSearchNUXT is the shared implementation used by both ParseSearchHTML
+// and ParseSearchPage. currentPage is the 1-based page number of the request.
+func parseSearchNUXT(nuxt map[string]any, currentPage int) ([]types.ProductSummary, types.PaginationInfo, error) {
+	if currentPage <= 0 {
+		currentPage = 1
 	}
 
 	collection := digSlice(nuxt, "state", "catalog", "products", "collection")
@@ -117,5 +177,20 @@ func ParseSearchHTML(html []byte) ([]types.ProductSummary, error) {
 		})
 	}
 
-	return out, nil
+	// Extract paginationInfo: {"lastPage": N, "totalCount": N, "itemsPerPage": N}
+	pi := types.PaginationInfo{CurrentPage: currentPage}
+	if info, ok := dig(nuxt, "state", "catalog", "products", "paginationInfo").(map[string]any); ok {
+		pi.TotalItems = jsonInt(info["totalCount"])
+		pi.TotalPages = jsonInt(info["lastPage"])
+	}
+	if pi.TotalPages == 0 {
+		pi.TotalPages = 1
+	}
+	pi.HasNextPage = currentPage < pi.TotalPages
+	if pi.HasNextPage {
+		next := currentPage + 1
+		pi.NextPage = &next
+	}
+
+	return out, pi, nil
 }

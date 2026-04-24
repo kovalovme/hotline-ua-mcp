@@ -40,3 +40,12 @@ type Offer struct {
 	Condition string  `json:"condition,omitempty"`
 	Guarantee string  `json:"guarantee,omitempty"`
 }
+
+// PaginationInfo describes one page of paginated search/category results.
+type PaginationInfo struct {
+	TotalItems  int  `json:"total_items"`
+	TotalPages  int  `json:"total_pages"`
+	CurrentPage int  `json:"current_page"`
+	HasNextPage bool `json:"has_next_page"`
+	NextPage    *int `json:"next_page,omitempty"`
+}

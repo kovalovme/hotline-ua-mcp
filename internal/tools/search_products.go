@@ -13,14 +13,18 @@ import (
 )
 
 type SearchProductsArgs struct {
-	Query string `json:"query" jsonschema:"product search query in Ukrainian or English, e.g. 'iPhone 15'"`
-	Limit int    `json:"limit,omitempty" jsonschema:"max results to return (default 10, max 40)"`
+	Query    string  `json:"query" jsonschema:"product search query in Ukrainian or English, e.g. 'iPhone 15'"`
+	Limit    int     `json:"limit,omitempty" jsonschema:"max results to return (default 10, max 40)"`
+	Page     int     `json:"page,omitempty" jsonschema:"page number for pagination (1-based, default 1)"`
+	PriceMin float64 `json:"price_min,omitempty" jsonschema:"minimum price filter in UAH"`
+	PriceMax float64 `json:"price_max,omitempty" jsonschema:"maximum price filter in UAH"`
 }
 
 type SearchProductsResult struct {
-	Query   string                  `json:"query"`
-	Count   int                     `json:"count"`
-	Results []types.ProductSummary  `json:"results"`
+	Query      string                 `json:"query"`
+	Count      int                    `json:"count"`
+	Results    []types.ProductSummary `json:"results"`
+	Pagination types.PaginationInfo   `json:"pagination"`
 }
 
 func SearchProducts(client *httpclient.Client) func(context.Context, *mcp.CallToolRequest, SearchProductsArgs) (*mcp.CallToolResult, any, error) {
@@ -35,14 +39,23 @@ func SearchProducts(client *httpclient.Client) func(context.Context, *mcp.CallTo
 		if limit > 40 {
 			limit = 40
 		}
+		page := args.Page
+		if page <= 0 {
+			page = 1
+		}
 
-		u := scrapers.BuildSearchURL(args.Query)
+		f := scrapers.SearchFilters{
+			Page:     page,
+			PriceMin: args.PriceMin,
+			PriceMax: args.PriceMax,
+		}
+		u := scrapers.BuildSearchURLFiltered(args.Query, f)
 		body, err := client.Get(ctx, u)
 		if err != nil {
 			return nil, nil, err
 		}
 
-		results, err := scrapers.ParseSearchHTML(body)
+		results, pagination, err := scrapers.ParseSearchPage(body, page)
 		if err != nil {
 			return nil, nil, err
 		}
@@ -52,9 +65,10 @@ func SearchProducts(client *httpclient.Client) func(context.Context, *mcp.CallTo
 		}
 
 		payload := SearchProductsResult{
-			Query:   args.Query,
-			Count:   len(results),
-			Results: results,
+			Query:      args.Query,
+			Count:      len(results),
+			Results:    results,
+			Pagination: pagination,
 		}
 		return textJSON(payload)
 	}
