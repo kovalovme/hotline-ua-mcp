@@ -1,72 +1,83 @@
 package scrapers
 
 import (
-	"bytes"
-	"encoding/json"
 	"fmt"
 
-	"github.com/PuerkitoBio/goquery"
 	"github.com/kovalovme/hotline-ua-mcp/internal/types"
 )
 
-// ParseOffersJSON tries to decode the offers list from an internal JSON
-// endpoint (preferred path: faster, richer data). The exact schema is
-// unknown without live access; this is a typed guess that will need
-// adjustment once a real response is captured.
+// ParseOffersHTML extracts the seller offer list from a product page.
 //
-// TODO(fixture): capture the real XHR (DevTools → Network tab when opening
-// the "Где купить" tab on a product page), save JSON to
-// test/fixtures/offers.json, then finalize this mapping.
-func ParseOffersJSON(body []byte) ([]types.Offer, error) {
-	var raw struct {
-		Offers []struct {
-			ShopName  string  `json:"shop_name"`
-			ShopURL   string  `json:"shop_url"`
-			URL       string  `json:"url"`
-			Price     float64 `json:"price"`
-			Currency  string  `json:"currency"`
-			InStock   bool    `json:"in_stock"`
-			Condition string  `json:"condition"`
-			Guarantee string  `json:"guarantee"`
-		} `json:"offers"`
-	}
-	if err := json.Unmarshal(body, &raw); err != nil {
-		return nil, fmt.Errorf("decode offers json: %w", err)
+// Source: window.__NUXT__ → state.product.offers.edges
+//
+// Each offer node contains price, shop name, condition, guarantee, and
+// visibility (in-stock indicator).
+func ParseOffersHTML(html []byte) ([]types.Offer, error) {
+	nuxt, err := nuxtState(html)
+	if err != nil {
+		return nil, fmt.Errorf("nuxt state: %w", err)
 	}
 
-	out := make([]types.Offer, 0, len(raw.Offers))
-	for _, o := range raw.Offers {
+	edges := digSlice(nuxt, "state", "product", "offers", "edges")
+	out := make([]types.Offer, 0, len(edges))
+
+	for _, e := range edges {
+		em, ok := e.(map[string]any)
+		if !ok {
+			continue
+		}
+		node, ok := em["node"].(map[string]any)
+		if !ok {
+			continue
+		}
+
+		visible, _ := node["visible"].(bool)
+
+		convURL := jsonString(node["conversionUrl"])
+		if convURL != "" {
+			convURL = "https://hotline.ua" + convURL
+		}
+
+		guarantee := guaranteeText(
+			jsonInt(node["guaranteeTerm"]),
+			jsonString(node["guaranteeType"]),
+		)
+
 		out = append(out, types.Offer{
-			ShopName:  o.ShopName,
-			ShopURL:   o.ShopURL,
-			OfferURL:  o.URL,
-			Price:     o.Price,
-			Currency:  o.Currency,
-			InStock:   o.InStock,
-			Condition: o.Condition,
-			Guarantee: o.Guarantee,
+			ShopName:  jsonString(node["firmTitle"]),
+			ShopURL:   shopURL(jsonString(node["firmExtraInfo"].(map[string]any)["website"])),
+			OfferURL:  convURL,
+			Price:     jsonFloat64(node["price"]),
+			Currency:  "UAH",
+			InStock:   visible,
+			Condition: jsonString(node["condition"]),
+			Guarantee: guarantee,
 		})
 	}
-	if len(out) == 0 {
-		return nil, ErrNotImplemented
-	}
+
 	return out, nil
 }
 
-// ParseOffersHTML is the fallback path: scrape the offers tab HTML.
-//
-// TODO(fixture): save test/fixtures/offers.html and finalize selectors.
-// Expected hooks:
-//
-//	.price-item                  // offer row
-//	.price-item__shop-name       // shop name
-//	.price-item__price           // price
-//	.price-item__go a            // outbound offer link
-func ParseOffersHTML(html []byte) ([]types.Offer, error) {
-	doc, err := goquery.NewDocumentFromReader(bytes.NewReader(html))
-	if err != nil {
-		return nil, fmt.Errorf("parse html: %w", err)
+func guaranteeText(months int, gtype string) string {
+	if months == 0 {
+		return ""
 	}
-	_ = doc
+	base := fmt.Sprintf("%d міс.", months)
+	if gtype != "" {
+		return base + " " + gtype
+	}
+	return base
+}
+
+func shopURL(website string) string {
+	if website == "" {
+		return ""
+	}
+	return "https://" + website
+}
+
+// ParseOffersJSON is retained as a stub. The JSON XHR path was not confirmed
+// during recon; the __NUXT__ HTML path is the confirmed primary route.
+func ParseOffersJSON(body []byte) ([]types.Offer, error) {
 	return nil, ErrNotImplemented
 }

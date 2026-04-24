@@ -53,12 +53,29 @@ Before writing any HTML scraper, always check if a stable JSON endpoint exists.
 5. Save a representative response to `test/fixtures/<name>.json` and wire a
    parser test.
 
-**Important 2026-04-24 update:** Live recon found no JSON-LD, no `__NUXT__`
-inline state blob, and no `<script type="application/json">` data injection on
-product pages. The Nuxt SSR output is plain HTML. The full offers list (46
-merchants on the test product) was present in the SSR response — no XHR
-trigger was needed. The JSON-first path remains worth checking via DevTools,
-but the HTML path is confirmed sufficient for all three tools.
+**Update 2026-04-24 (HTML curl recon, supersedes WebFetch findings):** Product
+pages contain:
+
+1. **schema.org/Product JSON-LD** (`<script type="application/ld+json">`) — fully
+   populated: name, SKU (numeric product ID), URL, price range, offer count,
+   rating, review count, image URLs, description. This is the primary source
+   for `ParseProductHTML`.
+2. **`window.__NUXT__` packed IIFE** (144 KB on test product) — contains
+   `state.product.offers.edges` (all 46 offers with prices, shop names, guarantee
+   terms, shipping) and `state.product.productValues.edges` (specs). Primary
+   source for `ParseOffersHTML` and specs in `ParseProductHTML`. Also contains
+   `state.catalog.products.collection` on catalog/search pages (used by
+   `ParseSearchHTML`).
+
+The `__NUXT__` IIFE is evaluated with `github.com/dop251/goja` at parse time.
+Individual offer prices are **not** in the rendered HTML — they only exist in
+the `__NUXT__` state.
+
+**Search limitation:** the global search URL (`/ua/search/?q=…`) is client-side
+routed and redirects to 404 under direct HTTP. The SSR search endpoint is
+internal (`search.search-19-production/api/json-rpc`). `search_products` is
+implemented against catalog listing pages (`/ua/mobile/mobilnye-telefony-i-smartfony/?text=…`)
+which do include product listings in SSR `__NUXT__` state.
 
 **Rule of thumb:** if a JSON endpoint exists and responds with 200 using the
 same cookies as page navigation, prefer it. Fall back to HTML scraping only
@@ -276,8 +293,8 @@ From the merchant bid API, the following identifiers exist in Hotline's backend:
 
 | Question | Status | Finding |
 |---|---|---|
-| Is there JSON-LD / `__NEXT_DATA__` on product pages? | **Answered: No** | No JSON-LD, no `__NUXT__` inline state, no schema.org microdata found. Nuxt SSR outputs plain HTML only. |
-| Does the offers tab load via XHR or SSR? | **Answered: SSR** | Full offers list (46 merchants) is present in the initial HTML response. No XHR trigger needed. |
+| Is there JSON-LD / `__NUXT__` on product pages? | **Answered: Both present** | schema.org/Product JSON-LD + 144 KB `window.__NUXT__` IIFE both present in SSR. JSON-LD has price range / rating; `__NUXT__` has individual offer prices and specs. |
+| Does the offers tab load via XHR or SSR? | **Answered: SSR** | All 46 offer nodes (with prices) are in the initial `__NUXT__` state. No XHR trigger needed. |
 | Is there a stable numeric product ID in the URL? | **Partially answered** | `product_id` integer exists in the merchant API and in legacy URLs (`/ua/.../12345/`). Canonical slug URLs do not contain it. Need to confirm whether a canonical product page exposes the ID in any attribute or link. |
 | What's the pagination mechanism for search? | **Still open** | Direct HTTP fetch of `?page=2` and `?p=2` returned 404. Must verify via live DevTools session. `?page=N` is the most common Nuxt.js convention. |
 | Are XHR endpoints available for search/offers? | **Still open** | Cloudflare blocked direct fetch attempts. Must use DevTools on a live browser session to intercept Network → Fetch/XHR traffic. |
