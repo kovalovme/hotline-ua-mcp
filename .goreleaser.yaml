@@ -9,7 +9,7 @@ before:
 builds:
   - id: hotline-ua-mcp
     main: ./cmd/hotline-ua-mcp
-    binary: hotline-ua-mcp
+    binary: bin/hotline-ua-mcp
     env:
       - CGO_ENABLED=0
     goos:
