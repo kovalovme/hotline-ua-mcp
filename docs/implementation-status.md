@@ -1,8 +1,8 @@
 # Implementation Status
 
-**As of 2026-04-24 (updated after v0.2 blocker fixes).** Describes what is
-actually built, how it works, and what is broken or missing. Complements the
-planning roadmap (`docs/planning/roadmap.md`), which tracks future work.
+**As of 2026-04-24 (v1).** Describes what is actually built, how it works,
+and what is broken or missing. Complements the planning roadmap
+(`docs/planning/roadmap.md`), which tracks future work.
 
 ---
 
@@ -14,9 +14,9 @@ planning roadmap (`docs/planning/roadmap.md`), which tracks future work.
 
 | Tool | Handler | Status |
 |---|---|---|
-| `search_products` | `internal/tools/search_products.go` | Runs; results not keyword-filtered (see §Bugs) |
-| `get_product` | `internal/tools/get_product.go` | Runs; blocked by Cloudflare on live requests |
-| `list_offers` | `internal/tools/list_offers.go` | Runs; blocked by Cloudflare on live requests |
+| `search_products` | `internal/tools/search_products.go` | Functional; keyword-filtered client-side via `FilterByQuery` |
+| `get_product` | `internal/tools/get_product.go` | Functional; Chrome_133 JA3 profile bypasses Cloudflare |
+| `list_offers` | `internal/tools/list_offers.go` | Functional; Chrome_133 JA3 profile bypasses Cloudflare |
 
 ### HTTP client (`internal/httpclient/client.go`)
 

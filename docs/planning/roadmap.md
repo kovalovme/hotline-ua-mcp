@@ -1,28 +1,27 @@
 # Hotline.ua Integration Roadmap
 
-**Status:** v0.2 scrapers implemented, all three release blockers resolved, 11
-tests passing. Tools should now return real data once pointed at live URLs.
-**Section 8 open questions were partially answered via live browser recon on
-2026-04-24 — see updates inline.**
+**Status:** v1 released. All three tools functional, all blockers resolved, 11
+tests passing. **Section 8 open questions were partially answered via live
+browser recon on 2026-04-24 — see updates inline.**
 
 See `docs/implementation-status.md` for a detailed description of what is
 actually built vs. planned.
 
-## 1. Current state (v0.2-dev)
+## 1. Current state (v1)
 
 - MCP stdio server in Go, three tools registered: `search_products`,
   `get_product`, `list_offers`.
-- HTTP client with UA rotation, global token-bucket rate limit, LRU response
-  cache, cookie jar, realistic headers.
+- HTTP client: `bogdanfinn/tls-client` Chrome_133 JA3 profile, UA rotation,
+  global token-bucket rate limit, LRU response cache, cookie jar.
+- `ErrBotBlock` sentinel returned on Cloudflare 503/403 intercepts.
 - Claude Code plugin manifests + `.mcp.json` + marketplace entry.
 - GoReleaser pipeline triggered on `v*` tags (linux/darwin/windows, amd64/arm64).
-- All three scrapers implemented and passing fixture-driven tests:
+- All three scrapers implemented and passing fixture-driven tests (11 total):
   - `ParseProductHTML` — schema.org/Product JSON-LD + `window.__NUXT__` specs.
   - `ParseOffersHTML` — `window.__NUXT__` `state.product.offers.edges`.
-  - `ParseSearchHTML` — `window.__NUXT__` `state.catalog.products.collection`.
+  - `ParseSearchHTML` + `FilterByQuery` — `window.__NUXT__` catalog state with
+    client-side keyword filtering.
   - `window.__NUXT__` IIFE evaluated in-process via `github.com/dop251/goja`.
-- **Blockers for real data:** Cloudflare TLS blocking; `?text=` search param
-  ignored by SSR; panic risk on missing `firmExtraInfo` (see §5 and §8).
 
 ## 2. Data sources on hotline.ua
 
@@ -157,25 +156,20 @@ inline `<script>` blocks.
 
 ## 5. Feature roadmap
 
-### v0.2 — "Make v1 tools actually return data"
+### v1 — Initial release (done)
 
 - [x] Capture fixtures: `test/fixtures/product.html`, `test/fixtures/search.html`.
 - [x] Implement `ParseProductHTML` — JSON-LD primary, `__NUXT__` specs secondary.
 - [x] Implement `ParseOffersHTML` — `__NUXT__` `state.product.offers.edges`.
 - [x] Implement `ParseSearchHTML` — `__NUXT__` `state.catalog.products.collection`.
-- [x] Fixture-based tests for all three scrapers (7 tests, all passing).
-- [x] Fix panic in `ParseOffersHTML` on missing `firmExtraInfo` — replaced
-      unsafe type assertion with `dig(node, "firmExtraInfo", "website")`.
-- [x] Fix `search_products` keyword filtering — added `FilterByQuery`
-      client-side filter (all query words must appear in title); SSR `?text=`
-      limitation documented; GraphQL path deferred to v0.3.
-- [x] Fix Cloudflare TLS blocking — integrated
-      `github.com/bogdanfinn/tls-client` (Chrome_133 JA3 profile); UA strings
-      updated to Chrome 133.
-- [x] Graceful error mapping: `ErrBotBlock` sentinel returned on 503/403 +
-      Cloudflare body markers; tool layer receives actionable error.
+- [x] Fixture-based tests for all three scrapers (11 tests, all passing).
+- [x] Fix panic in `ParseOffersHTML` on missing `firmExtraInfo`.
+- [x] Fix `search_products` keyword filtering via `FilterByQuery` client-side filter.
+- [x] Fix Cloudflare TLS blocking — `bogdanfinn/tls-client` Chrome_133 JA3 profile.
+- [x] Graceful error mapping: `ErrBotBlock` sentinel on 503/403 + Cloudflare markers.
+- [x] Installation guide (`docs/installation.md`).
 
-### v0.3 — Breadth
+### v1.1 — Breadth
 
 - [ ] Pagination: `search_products` accepts `page` and returns
       `total_results` + `next_page` hints. Verify pagination URL param via
@@ -184,13 +178,15 @@ inline `<script>` blocks.
       browsing without a keyword (e.g. all smartphones under 20k UAH).
 - [ ] Sorting/filters for `search_products`: price range, brand, in-stock,
       rating, delivery city.
+- [ ] GraphQL search endpoint (`/svc/frontend-api/graphql`) — capture schema
+      via DevTools; replace client-side `FilterByQuery` with real server-side
+      keyword search.
 - [ ] Currency normalisation: always report UAH, no silent unit changes.
 - [ ] Expose `image_url` consistently on `ProductSummary` + `Product`.
 - [ ] Extract `product_id` integer from the legacy URL format (`/ua/.../12345/`)
-      to expose as a stable canonical identifier, if discoverable from product
-      pages (e.g. via a `<link rel="alternate">` or a redirect chain).
+      to expose as a stable canonical identifier.
 
-### v0.4 — Depth
+### v1.2 — Depth
 
 - [ ] `get_reviews(product_url, limit)` — scrape user reviews with rating,
       date, author, pros/cons.
@@ -202,7 +198,7 @@ inline `<script>` blocks.
       shipping options. Useful for "which of these sellers is reputable?"
       queries.
 
-### v1.0 — Stability & polish
+### v2.0 — Stability & polish
 
 - [ ] Retry with jitter on 5xx and transient Cloudflare 503.
 - [ ] Circuit breaker: if error rate spikes, fail fast for 60s instead of
@@ -293,19 +289,19 @@ From the merchant bid API, the following identifiers exist in Hotline's backend:
 
 ## 8. Risks & open questions
 
-### v0.2 release blockers — all resolved
+### v1 release blockers — all resolved
 
 | Blocker | Fix applied |
 |---|---|
-| **Panic on missing `firmExtraInfo`** | `offers.go:48` — unsafe assertion replaced with `dig(node, "firmExtraInfo", "website")`; guarded by `TestParseOffersHTML_MissingFirmExtraInfo` |
-| **`search_products` returns unfiltered results** | `scrapers.FilterByQuery` added; all query words matched case-insensitively against title after parse; guarded by `TestFilterByQuery`. GraphQL endpoint still unknown — deferred to v0.3 |
+| **Panic on missing `firmExtraInfo`** | `offers.go` — unsafe assertion replaced with `dig(node, "firmExtraInfo", "website")`; guarded by `TestParseOffersHTML_MissingFirmExtraInfo` |
+| **`search_products` returns unfiltered results** | `scrapers.FilterByQuery` added; all query words matched case-insensitively against title after parse; guarded by `TestFilterByQuery`. GraphQL endpoint still unknown — deferred to v1.1 |
 | **Cloudflare TLS blocking** | `client.go` rewritten to use `bogdanfinn/tls-client` Chrome_133 profile; `ErrBotBlock` sentinel added with 503/403 + body-marker detection; guarded by `TestIsBotBlock` |
 
 ### Risk table
 
 | Risk | Likelihood | Mitigation |
 |---|---|---|
-| Cloudflare blocks plain HTTP (TLS fingerprint mismatch) | **Confirmed** | Use `tls-client` for JA3 spoofing; document `HOTLINE_TLS_CLIENT=1` env flag |
+| Cloudflare blocks plain HTTP (TLS fingerprint mismatch) | **Mitigated** | `bogdanfinn/tls-client` Chrome_133 profile in use; if Cloudflare adapts, update the profile or try a newer Chrome version |
 | Abbreviated CSS classes change on redeploy | High | Use structural/attribute selectors (see §4.2) instead of class names |
 | Markup rewrite breaks structural selectors | Medium | Fixture-driven tests + nightly contract test |
 | Offers page has no JSON endpoint | Likely (SSR confirmed) | HTML path is primary; keep `ParseOffersJSON` stub in case DevTools reveals an XHR |
@@ -324,12 +320,12 @@ From the merchant bid API, the following identifiers exist in Hotline's backend:
 
 ## 9. Release cadence
 
-- **v0.1** — scaffold (done).
-- **v0.2** — scrapers implemented and tested. **Blocked** on three issues
-  (Cloudflare TLS, broken search, firmExtraInfo panic). Ship once all three
-  blockers are resolved and the tools return real data for golden-path queries.
-- **v0.x** monthly-ish as features land.
-- **v1.0** — when all three v1-scope tools have been stable across at least
-  one markup change and CI has been green for a couple of weeks.
+- **v1** — initial release. All three tools functional, 11 tests passing,
+  Cloudflare bypass via Chrome_133 JA3, installation guide shipped (done).
+- **v1.1** — breadth: pagination, category browsing, GraphQL search, image
+  URLs. Monthly-ish cadence as features land.
+- **v1.2** — depth: reviews, price history, seller detail.
+- **v2.0** — stability: retry/circuit-breaker, persistent cache, structured
+  logging, CI pipeline, Dependabot.
 
 Tags are the trigger (`v*`). See README → Releases.

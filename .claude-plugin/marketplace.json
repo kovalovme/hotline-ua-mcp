@@ -9,7 +9,7 @@
       "name": "hotline-ua",
       "source": "./",
       "description": "Search hotline.ua products, prices, and seller offers from Claude Code.",
-      "version": "0.1.0",
+      "version": "1.0.0",
       "category": "search"
     }
   ]

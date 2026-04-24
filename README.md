@@ -3,25 +3,26 @@
 A Claude Code plugin that exposes [hotline.ua](https://hotline.ua) — Ukraine's
 largest price-comparison site — as MCP tools. Built in Go.
 
-**Status: v0.1 scaffold.** The project structure, MCP server, plugin manifests,
-HTTP client (rate limit + UA rotation + LRU cache), and tool wiring are in
-place. Scraper selectors are stubbed and need to be finalized against real
-HTML/JSON fixtures (see [Fixtures](#fixtures) below).
-
 Hotline has no official public search API. This plugin parses the public web
-UI. UA locale only.
+UI using server-side rendered HTML and a browser-grade TLS fingerprint to
+bypass Cloudflare bot checks. UA locale only.
 
 ## Tools
 
 | Tool | Input | Output |
 |---|---|---|
-| `search_products` | `query`, `limit` | list of product summaries (title, URL, price range, offer count, rating) |
+| `search_products` | `query`, `limit` | product summaries: title, URL, price range, offer count, rating |
 | `get_product` | `url` | full product: title, aggregate price range, rating, specs |
 | `list_offers` | `product_url`, `sort`, `limit`, `in_stock` | seller offers sorted by price |
 
+**Known limitation:** `search_products` is currently scoped to the smartphones
+category. Results are filtered client-side by keyword — real GraphQL-backed
+search is planned for v1.1.
+
 ## Install
 
-Build the binary, then install the plugin.
+See [docs/installation.md](docs/installation.md) for the full guide. Quick
+start:
 
 ```bash
 git clone https://github.com/kovalovme/hotline-ua-mcp.git
@@ -29,15 +30,12 @@ cd hotline-ua-mcp
 go build -o bin/hotline-ua-mcp ./cmd/hotline-ua-mcp
 ```
 
-In Claude Code:
+Then in Claude Code:
 
 ```
 /plugin marketplace add /absolute/path/to/hotline-ua-mcp
 /plugin install hotline-ua@hotline-ua-marketplace
 ```
-
-The plugin registers an MCP server via `.mcp.json` pointing at
-`${CLAUDE_PLUGIN_ROOT}/bin/hotline-ua-mcp`.
 
 ## Configuration
 
@@ -48,21 +46,6 @@ Environment variables (set on the MCP server entry in `.mcp.json`):
 | `HOTLINE_RATE_LIMIT_RPS` | `1` | Global requests/sec cap |
 | `HOTLINE_CACHE_TTL_SEC` | `600` | LRU response cache TTL (seconds) |
 
-## Fixtures
-
-Live endpoint recon was not possible from the scaffolding sandbox. Before
-shipping, capture these files into `test/fixtures/`:
-
-1. `search.html` — save-as from `https://hotline.ua/ua/search/?q=iphone+15`
-2. `product.html` — save-as from any product detail page
-3. `offers.json` — in DevTools → Network, open the "Де купити" / offers tab
-   on a product page and copy the XHR response. If no JSON endpoint exists,
-   skip this and provide `offers.html` instead.
-4. `offers.html` — fallback; save-as from the offers tab.
-
-With fixtures in place, finalize the selectors in
-`internal/scrapers/{search,product,offers}.go` (search for `TODO(fixture)`).
-
 ## Layout
 
 ```
@@ -71,9 +54,13 @@ With fixtures in place, finalize the selectors in
   marketplace.json      # single-plugin marketplace so the repo is installable as-is
 .mcp.json               # MCP server registration consumed by Claude Code
 cmd/hotline-ua-mcp/     # main binary
+docs/
+  installation.md       # full install guide
+  implementation-status.md
+  planning/roadmap.md
 internal/
-  httpclient/           # undici-style: rate-limited, cached, UA-rotating HTTP
-  scrapers/             # HTML/JSON → typed values
+  httpclient/           # rate-limited, cached, Chrome-fingerprint HTTP client
+  scrapers/             # HTML → typed values (JSON-LD + window.__NUXT__)
   tools/                # MCP tool handlers
   types/                # shared data shapes
 test/fixtures/          # saved hotline.ua pages for offline tests
@@ -84,33 +71,28 @@ test/fixtures/          # saved hotline.ua pages for offline tests
 ```bash
 go build ./...
 go vet ./...
-go test ./...
+go test ./...          # 11 tests
 ```
 
 ## Releases
 
 Releases are cut by pushing a `v*` tag. A GitHub Actions workflow
 (`.github/workflows/release.yml`) runs [GoReleaser](https://goreleaser.com)
-which cross-compiles binaries for:
+which cross-compiles for:
 
 - linux/amd64, linux/arm64
 - darwin/amd64, darwin/arm64
 - windows/amd64
 
 Each archive bundles the binary, `README.md`, `LICENSE`, `.mcp.json`, and the
-`.claude-plugin/` manifests, so it can be extracted into any directory and
-registered with `/plugin marketplace add`. A `checksums.txt` is attached to
-the release.
-
-To cut a release:
+`.claude-plugin/` manifests. A `checksums.txt` is attached to the release.
 
 ```bash
-git tag v0.1.0
-git push origin v0.1.0
+git tag v1.0.0
+git push origin v1.0.0
 ```
 
-GoReleaser injects the tag version into the binary via
-`-ldflags "-X main.version=..."`. You can validate the config locally with:
+Validate the config locally:
 
 ```bash
 goreleaser check
