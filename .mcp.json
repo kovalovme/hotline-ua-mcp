@@ -1,7 +1,8 @@
 {
   "mcpServers": {
     "hotline-ua": {
-      "command": "${CLAUDE_PLUGIN_ROOT}/bin/hotline-ua-mcp",
+      "command": "node",
+      "args": ["${CLAUDE_PLUGIN_ROOT}/bin/run.js"],
       "env": {
         "HOTLINE_RATE_LIMIT_RPS": "1",
         "HOTLINE_CACHE_TTL_SEC": "600"

@@ -1,4 +1,5 @@
-/bin/
+/bin/hotline-ua-mcp
+/bin/hotline-ua-mcp.exe
 /dist/
 *.test
 *.out
