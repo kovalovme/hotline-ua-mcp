@@ -1,9 +1,9 @@
 # Hotline.ua Integration Roadmap
 
-**Status:** v0.2 scrapers implemented and all fixture tests passing. Three
-blockers remain before a real-data release (see §5 v0.2 and §8). This doc is
-the living plan for everything downstream. **Section 8 open questions were
-partially answered via live browser recon on 2026-04-24 — see updates inline.**
+**Status:** v0.2 scrapers implemented, all three release blockers resolved, 11
+tests passing. Tools should now return real data once pointed at live URLs.
+**Section 8 open questions were partially answered via live browser recon on
+2026-04-24 — see updates inline.**
 
 See `docs/implementation-status.md` for a detailed description of what is
 actually built vs. planned.
@@ -164,14 +164,16 @@ inline `<script>` blocks.
 - [x] Implement `ParseOffersHTML` — `__NUXT__` `state.product.offers.edges`.
 - [x] Implement `ParseSearchHTML` — `__NUXT__` `state.catalog.products.collection`.
 - [x] Fixture-based tests for all three scrapers (7 tests, all passing).
-- [ ] **BLOCKER** Fix panic in `ParseOffersHTML` on missing `firmExtraInfo`
-      (see §8).
-- [ ] **BLOCKER** Fix `search_products` keyword filtering — `?text=` param
-      is ignored by SSR; investigate GraphQL endpoint (see §8).
-- [ ] **BLOCKER** Fix Cloudflare TLS blocking — integrate
-      `github.com/bogdanfinn/tls-client` for JA3 spoofing (see §8).
-- [ ] Graceful error mapping: distinct `ErrBotBlock` type for 503/Cloudflare;
-      expose as actionable MCP error.
+- [x] Fix panic in `ParseOffersHTML` on missing `firmExtraInfo` — replaced
+      unsafe type assertion with `dig(node, "firmExtraInfo", "website")`.
+- [x] Fix `search_products` keyword filtering — added `FilterByQuery`
+      client-side filter (all query words must appear in title); SSR `?text=`
+      limitation documented; GraphQL path deferred to v0.3.
+- [x] Fix Cloudflare TLS blocking — integrated
+      `github.com/bogdanfinn/tls-client` (Chrome_133 JA3 profile); UA strings
+      updated to Chrome 133.
+- [x] Graceful error mapping: `ErrBotBlock` sentinel returned on 503/403 +
+      Cloudflare body markers; tool layer receives actionable error.
 
 ### v0.3 — Breadth
 
@@ -291,13 +293,13 @@ From the merchant bid API, the following identifiers exist in Hotline's backend:
 
 ## 8. Risks & open questions
 
-### v0.2 release blockers (must fix before tagging v0.2)
+### v0.2 release blockers — all resolved
 
-| Blocker | Location | Fix |
-|---|---|---|
-| **Panic on missing `firmExtraInfo`** — unsafe type assertion crashes `ParseOffersHTML` when a node omits `firmExtraInfo` | `internal/scrapers/offers.go:48` | Replace `node["firmExtraInfo"].(map[string]any)["website"]` with `jsonString(dig(node, "firmExtraInfo", "website"))` |
-| **`search_products` returns unfiltered results** — `?text=` query param is ignored by SSR; returns all ~5090 smartphones regardless of query | `internal/scrapers/search.go:22-33` | Investigate `/svc/frontend-api/graphql` endpoint (confirmed present via `<link rel="preconnect">`) with DevTools; capture request/response shape |
-| **Cloudflare TLS blocking** — standard Go `net/http` TLS fingerprint triggers 503 on all live requests; no `ErrBotBlock` type | `internal/httpclient/client.go` | Integrate `github.com/bogdanfinn/tls-client` for JA3/Chrome fingerprint spoofing; add `ErrBotBlock` sentinel |
+| Blocker | Fix applied |
+|---|---|
+| **Panic on missing `firmExtraInfo`** | `offers.go:48` — unsafe assertion replaced with `dig(node, "firmExtraInfo", "website")`; guarded by `TestParseOffersHTML_MissingFirmExtraInfo` |
+| **`search_products` returns unfiltered results** | `scrapers.FilterByQuery` added; all query words matched case-insensitively against title after parse; guarded by `TestFilterByQuery`. GraphQL endpoint still unknown — deferred to v0.3 |
+| **Cloudflare TLS blocking** | `client.go` rewritten to use `bogdanfinn/tls-client` Chrome_133 profile; `ErrBotBlock` sentinel added with 503/403 + body-marker detection; guarded by `TestIsBotBlock` |
 
 ### Risk table
 

@@ -70,6 +70,26 @@ func TestParseOffersHTML(t *testing.T) {
 	}
 }
 
+// TestParseOffersHTML_MissingFirmExtraInfo guards against the panic that
+// occurred when an offer node had no firmExtraInfo field (unsafe type assertion
+// on nil map value). ShopURL should be empty string, not a crash.
+func TestParseOffersHTML_MissingFirmExtraInfo(t *testing.T) {
+	html := []byte(`<!doctype html><html><body><script>window.__NUXT__={"state":{"product":{"offers":{"edges":[{"node":{"firmTitle":"NoURL Shop","price":9999,"visible":true,"condition":"новый","guaranteeTerm":0,"guaranteeType":"","conversionUrl":"/go/price/99/"}}]}}}};</script></body></html>`)
+	offers, err := scrapers.ParseOffersHTML(html)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(offers) != 1 {
+		t.Fatalf("expected 1 offer, got %d", len(offers))
+	}
+	if offers[0].ShopURL != "" {
+		t.Errorf("ShopURL should be empty when firmExtraInfo absent, got %q", offers[0].ShopURL)
+	}
+	if offers[0].ShopName != "NoURL Shop" {
+		t.Errorf("ShopName: got %q", offers[0].ShopName)
+	}
+}
+
 func TestParseOffersHTML_NoOffers(t *testing.T) {
 	html := []byte(`<!doctype html><html><body><script>window.__NUXT__={"state":{"product":{"offers":{"edges":[]}}}};</script></body></html>`)
 	offers, err := scrapers.ParseOffersHTML(html)

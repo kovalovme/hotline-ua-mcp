@@ -45,7 +45,7 @@ func ParseOffersHTML(html []byte) ([]types.Offer, error) {
 
 		out = append(out, types.Offer{
 			ShopName:  jsonString(node["firmTitle"]),
-			ShopURL:   shopURL(jsonString(node["firmExtraInfo"].(map[string]any)["website"])),
+			ShopURL:   shopURL(jsonString(dig(node, "firmExtraInfo", "website"))),
 			OfferURL:  convURL,
 			Price:     jsonFloat64(node["price"]),
 			Currency:  "UAH",

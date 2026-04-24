@@ -5,6 +5,7 @@ import (
 	"testing"
 
 	"github.com/kovalovme/hotline-ua-mcp/internal/scrapers"
+	"github.com/kovalovme/hotline-ua-mcp/internal/types"
 )
 
 func TestParseSearchHTML(t *testing.T) {
@@ -56,6 +57,39 @@ func TestParseSearchHTML_Empty(t *testing.T) {
 	}
 	if len(results) != 0 {
 		t.Errorf("expected 0 results, got %d", len(results))
+	}
+}
+
+func TestFilterByQuery(t *testing.T) {
+	products := []types.ProductSummary{
+		{Title: "Apple iPhone 17 256GB Black"},
+		{Title: "Samsung Galaxy S25 128GB"},
+		{Title: "Apple iPhone 15 Pro 512GB"},
+	}
+
+	got := scrapers.FilterByQuery(products, "iphone")
+	if len(got) != 2 {
+		t.Errorf("iphone: want 2, got %d", len(got))
+	}
+
+	got = scrapers.FilterByQuery(products, "Apple 256GB")
+	if len(got) != 1 || got[0].Title != "Apple iPhone 17 256GB Black" {
+		t.Errorf("Apple 256GB: want 1 specific result, got %v", got)
+	}
+
+	got = scrapers.FilterByQuery(products, "samsung")
+	if len(got) != 1 || got[0].Title != "Samsung Galaxy S25 128GB" {
+		t.Errorf("samsung: want 1 result, got %v", got)
+	}
+
+	got = scrapers.FilterByQuery(products, "")
+	if len(got) != 3 {
+		t.Errorf("empty query: want all 3, got %d", len(got))
+	}
+
+	got = scrapers.FilterByQuery(products, "pixel")
+	if len(got) != 0 {
+		t.Errorf("no-match: want 0, got %d", len(got))
 	}
 }
 

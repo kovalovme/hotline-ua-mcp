@@ -46,6 +46,7 @@ func SearchProducts(client *httpclient.Client) func(context.Context, *mcp.CallTo
 		if err != nil {
 			return nil, nil, err
 		}
+		results = scrapers.FilterByQuery(results, args.Query)
 		if len(results) > limit {
 			results = results[:limit]
 		}
