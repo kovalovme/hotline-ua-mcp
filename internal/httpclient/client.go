@@ -6,6 +6,7 @@
 package httpclient
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"fmt"
@@ -140,6 +141,46 @@ func (c *Client) Get(ctx context.Context, url string) ([]byte, error) {
 		storedAt:    time.Now(),
 	})
 	return body, nil
+}
+
+// PostJSON sends a POST request with a JSON body and returns the response body.
+// Goes through the rate limiter; responses are not cached (POST bodies vary).
+// Returns ErrBotBlock if Cloudflare intercepts the request.
+func (c *Client) PostJSON(ctx context.Context, url string, body []byte) ([]byte, error) {
+	if err := c.limiter.Wait(ctx); err != nil {
+		return nil, fmt.Errorf("rate limiter: %w", err)
+	}
+
+	req, err := fhttp.NewRequestWithContext(ctx, fhttp.MethodPost, url, bytes.NewReader(body))
+	if err != nil {
+		return nil, err
+	}
+	c.applyHeaders(req)
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Accept", "*/*")
+	req.Header.Set("Sec-Fetch-Dest", "empty")
+	req.Header.Set("Sec-Fetch-Mode", "cors")
+	req.Header.Set("Sec-Fetch-Site", "same-origin")
+
+	resp, err := c.http.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("http post: %w", err)
+	}
+	defer resp.Body.Close()
+
+	respBody, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, fmt.Errorf("read body: %w", err)
+	}
+
+	if isBotBlock(resp.StatusCode, respBody) {
+		return nil, ErrBotBlock
+	}
+	if resp.StatusCode >= 400 {
+		return nil, fmt.Errorf("hotline returned %d for %s (first 200 bytes: %q)",
+			resp.StatusCode, url, truncate(respBody, 200))
+	}
+	return respBody, nil
 }
 
 func (c *Client) applyHeaders(req *fhttp.Request) {

@@ -76,3 +76,17 @@ func TestParseProductHTML_NoJSONLD(t *testing.T) {
 		t.Error("expected error for missing JSON-LD, got nil")
 	}
 }
+
+func TestParseProductHTML_CurrencyFallbackUAH(t *testing.T) {
+	// JSON-LD with no priceCurrency — Currency must default to UAH.
+	html := []byte(`<!doctype html><html><head>
+<script type="application/ld+json">{"@type":"Product","name":"Test","url":"https://hotline.ua/ua/test/","sku":"123","offers":{"lowPrice":1000,"highPrice":2000,"offerCount":5}}</script>
+</head><body><script>window.__NUXT__={};</script></body></html>`)
+	p, err := scrapers.ParseProductHTML(html)
+	if err != nil {
+		t.Fatalf("ParseProductHTML error: %v", err)
+	}
+	if p.Currency != "UAH" {
+		t.Errorf("Currency: got %q, want UAH (should default when priceCurrency absent)", p.Currency)
+	}
+}

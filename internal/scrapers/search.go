@@ -1,6 +1,7 @@
 package scrapers
 
 import (
+	"encoding/json"
 	"fmt"
 	"net/url"
 	"strconv"
@@ -10,27 +11,100 @@ import (
 	"github.com/kovalovme/hotline-ua-mcp/internal/types"
 )
 
+// SearchFilters holds optional parameters for search and category URLs.
+type SearchFilters struct {
+	Page     int
+	PriceMin float64
+	PriceMax float64
+}
+
 // BuildSearchURL constructs a catalog listing URL for the given query.
 //
 // hotline.ua's global search (`/ua/search/?q=…`) is client-side routed and
 // does not return SSR product data. Catalog section URLs do include product
 // listings in the initial __NUXT__ state. This function encodes the query as
-// a URL-safe path segment and routes to the all-categories search path.
+// a URL-safe query string and routes to the all-categories search path.
 //
 // Live recon (2026-04-24): the search SSR endpoint is internal
 // (search.search-19-production) so a direct category browse is the only
 // fully SSR-backed approach available without GraphQL.
 func BuildSearchURL(query string) string {
-	slug := queryToSlug(query)
-	return fmt.Sprintf("https://hotline.ua/ua/mobile/mobilnye-telefony-i-smartfony/%s", slug)
+	return BuildSearchURLFiltered(query, SearchFilters{})
 }
 
-// queryToSlug converts a search phrase to a URL slug appended as a filter.
-// e.g. "iphone 15" → "?text=iphone+15"  (category-level text filter)
-func queryToSlug(query string) string {
+// BuildSearchURLFiltered builds a smartphones-category search URL with optional
+// pagination and price filters. Uses ?q= for server-side keyword filtering
+// (confirmed via DevTools 2026-04-24: ?q= filters SSR __NUXT__ state;
+// ?text= does not).
+func BuildSearchURLFiltered(query string, f SearchFilters) string {
+	return BuildCategorySearchURL("/mobile/mobilnye-telefony-i-smartfony/", query, f)
+}
+
+// BuildCategorySearchURL builds a category URL with server-side keyword filtering
+// and optional pagination/price filters. categoryPath is the path segment returned
+// by ParseSearchMenuResponse (e.g. "/mobile/mobilnye-telefony-i-smartfony/").
+func BuildCategorySearchURL(categoryPath, query string, f SearchFilters) string {
+	base := "https://hotline.ua/ua" + "/" + strings.Trim(categoryPath, "/") + "/"
 	v := url.Values{}
-	v.Set("text", strings.TrimSpace(query))
-	return "?" + v.Encode()
+	v.Set("q", strings.TrimSpace(query))
+	if f.Page > 1 {
+		v.Set("page", strconv.Itoa(f.Page))
+	}
+	if f.PriceMin > 0 {
+		v.Set("priceMin", strconv.FormatFloat(f.PriceMin, 'f', 0, 64))
+	}
+	if f.PriceMax > 0 {
+		v.Set("priceMax", strconv.FormatFloat(f.PriceMax, 'f', 0, 64))
+	}
+	return base + "?" + v.Encode()
+}
+
+// ParseSearchMenuResponse extracts the first category path from a
+// POST /svc/search/api/json-rpc search.menu response. The returned path
+// (e.g. "/mobile/mobilnye-telefony-i-smartfony/") can be passed directly
+// to BuildCategorySearchURL.
+func ParseSearchMenuResponse(body []byte) (string, error) {
+	var resp struct {
+		Result struct {
+			Products struct {
+				Sections []struct {
+					Catalogs []struct {
+						URL string `json:"url"`
+					} `json:"catalogs"`
+				} `json:"sections"`
+			} `json:"products"`
+		} `json:"result"`
+	}
+	if err := json.Unmarshal(body, &resp); err != nil {
+		return "", fmt.Errorf("parse search menu: %w", err)
+	}
+	for _, sec := range resp.Result.Products.Sections {
+		if len(sec.Catalogs) > 0 && sec.Catalogs[0].URL != "" {
+			return sec.Catalogs[0].URL, nil
+		}
+	}
+	return "", fmt.Errorf("search menu: no categories found for query")
+}
+
+// BuildCategoryURL constructs a category browse URL with optional pagination
+// and price filters. slug should be the path segment(s) after /ua/, e.g.
+// "mobile/mobilnye-telefony-i-smartfony".
+func BuildCategoryURL(slug string, f SearchFilters) string {
+	base := "https://hotline.ua/ua/" + strings.Trim(slug, "/") + "/"
+	v := url.Values{}
+	if f.Page > 1 {
+		v.Set("page", strconv.Itoa(f.Page))
+	}
+	if f.PriceMin > 0 {
+		v.Set("priceMin", strconv.FormatFloat(f.PriceMin, 'f', 0, 64))
+	}
+	if f.PriceMax > 0 {
+		v.Set("priceMax", strconv.FormatFloat(f.PriceMax, 'f', 0, 64))
+	}
+	if len(v) == 0 {
+		return base
+	}
+	return base + "?" + v.Encode()
 }
 
 // FilterByQuery performs client-side keyword filtering on a product list.
@@ -71,6 +145,27 @@ func ParseSearchHTML(html []byte) ([]types.ProductSummary, error) {
 	nuxt, err := nuxtState(html)
 	if err != nil {
 		return nil, fmt.Errorf("nuxt state: %w", err)
+	}
+	products, _, err := parseSearchNUXT(nuxt, 0)
+	return products, err
+}
+
+// ParseSearchPage extracts product summaries and pagination info from a
+// catalog/search results page. currentPage should be the page number that was
+// requested (1-based); pass 0 to default to page 1.
+func ParseSearchPage(html []byte, currentPage int) ([]types.ProductSummary, types.PaginationInfo, error) {
+	nuxt, err := nuxtState(html)
+	if err != nil {
+		return nil, types.PaginationInfo{}, fmt.Errorf("nuxt state: %w", err)
+	}
+	return parseSearchNUXT(nuxt, currentPage)
+}
+
+// parseSearchNUXT is the shared implementation used by both ParseSearchHTML
+// and ParseSearchPage. currentPage is the 1-based page number of the request.
+func parseSearchNUXT(nuxt map[string]any, currentPage int) ([]types.ProductSummary, types.PaginationInfo, error) {
+	if currentPage <= 0 {
+		currentPage = 1
 	}
 
 	collection := digSlice(nuxt, "state", "catalog", "products", "collection")
@@ -117,5 +212,20 @@ func ParseSearchHTML(html []byte) ([]types.ProductSummary, error) {
 		})
 	}
 
-	return out, nil
+	// Extract paginationInfo: {"lastPage": N, "totalCount": N, "itemsPerPage": N}
+	pi := types.PaginationInfo{CurrentPage: currentPage}
+	if info, ok := dig(nuxt, "state", "catalog", "products", "paginationInfo").(map[string]any); ok {
+		pi.TotalItems = jsonInt(info["totalCount"])
+		pi.TotalPages = jsonInt(info["lastPage"])
+	}
+	if pi.TotalPages == 0 {
+		pi.TotalPages = 1
+	}
+	pi.HasNextPage = currentPage < pi.TotalPages
+	if pi.HasNextPage {
+		next := currentPage + 1
+		pi.NextPage = &next
+	}
+
+	return out, pi, nil
 }
