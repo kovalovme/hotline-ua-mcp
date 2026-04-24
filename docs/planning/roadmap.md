@@ -1,8 +1,8 @@
 # Hotline.ua Integration Roadmap
 
-**Status:** v1 released. All three tools functional, all blockers resolved, 11
-tests passing. **Section 8 open questions were partially answered via live
-browser recon on 2026-04-24 — see updates inline.**
+**Status:** v1.1 released. Four tools functional, 23 tests passing. Server-side
+cross-category search via `search.menu` JSON-RPC + `?q=` SSR filtering confirmed
+via live DevTools recon on 2026-04-24.
 
 See `docs/implementation-status.md` for a detailed description of what is
 actually built vs. planned.
@@ -149,10 +149,18 @@ inline `<script>` blocks.
 
 ### 4.4 Search URL format
 
-- Search page: `https://hotline.ua/ua/search/?q=[url-encoded-query]`
-- Pagination parameter: **not yet confirmed** (direct fetch was blocked).
-  Candidates: `?page=N`, `?p=N`, or a URL segment. Must verify via DevTools
-  on a live browser session before implementing `search_products` pagination.
+**Update 2026-04-24 (DevTools recon, confirmed):**
+
+- Global search navigates to `https://hotline.ua/ua/sr/?q=[query]` — this page
+  shows a category breakdown (counts per category), not product listings.
+- Category pages with `?q=[query]` (e.g. `/ua/mobile/mobilnye-telefony-i-smartfony/?q=iphone+17`)
+  deliver SSR-filtered `__NUXT__` catalog state. `?text=` was the old param and
+  is **ignored** by the server.
+- The best category for a query is discovered via
+  `POST /svc/search/api/json-rpc` method `search.menu` — no auth token needed,
+  just session cookies. Returns sections with catalogs and result counts.
+- Pagination parameter: `?page=N` — confirmed via `__NUXT__` `paginationInfo`
+  (`lastPage`, `totalCount`, `itemsPerPage`).
 
 ## 5. Feature roadmap
 
@@ -169,22 +177,29 @@ inline `<script>` blocks.
 - [x] Graceful error mapping: `ErrBotBlock` sentinel on 503/403 + Cloudflare markers.
 - [x] Installation guide (`docs/installation.md`).
 
-### v1.1 — Breadth
+### v1.1 — Breadth (done)
 
-- [ ] Pagination: `search_products` accepts `page` and returns
-      `total_results` + `next_page` hints. Verify pagination URL param via
-      DevTools before implementing (see §4.4).
-- [ ] Category browsing: new tool `list_category(slug, sort, filters)` for
-      browsing without a keyword (e.g. all smartphones under 20k UAH).
-- [ ] Sorting/filters for `search_products`: price range, brand, in-stock,
-      rating, delivery city.
-- [ ] GraphQL search endpoint (`/svc/frontend-api/graphql`) — capture schema
-      via DevTools; replace client-side `FilterByQuery` with real server-side
-      keyword search.
-- [ ] Currency normalisation: always report UAH, no silent unit changes.
-- [ ] Expose `image_url` consistently on `ProductSummary` + `Product`.
-- [ ] Extract `product_id` integer from the legacy URL format (`/ua/.../12345/`)
-      to expose as a stable canonical identifier.
+- [x] Pagination: `search_products` accepts `page` and returns `PaginationInfo`
+      (`total_items`, `total_pages`, `current_page`, `has_next_page`, `next_page`).
+      Confirmed `?page=N` via `__NUXT__` `paginationInfo.lastPage`.
+- [x] Category browsing: new tool `list_category(slug, page, price_min,
+      price_max)` — browse any category without a keyword.
+- [x] Price filters for `search_products` and `list_category`: `price_min`,
+      `price_max` passed as `?priceMin=N&priceMax=M`.
+- [x] Server-side keyword search: replaced `FilterByQuery` client-side hack with
+      `POST /svc/search/api/json-rpc` (`search.menu`) to discover the best
+      category, then `?q=<query>` on the category page — confirmed via DevTools
+      that `?q=` filters SSR `__NUXT__` catalog state; `?text=` was ignored.
+      Works across all hotline.ua categories, not just smartphones.
+- [x] Currency normalisation: `Currency` defaults to `"UAH"` when
+      `priceCurrency` is absent from JSON-LD.
+- [x] `image_url` consistently exposed on `ProductSummary` and `Product`
+      (was already populated by both scrapers in v1; verified with test assertions).
+- [x] `product_id` exposed as `id` field on `ProductSummary` (from `__NUXT__`
+      `_id`) and `Product` (from JSON-LD `sku`).
+- [ ] GraphQL search endpoint (`/svc/frontend-api/graphql`) — investigated via
+      DevTools: GraphQL only serves auxiliary data (ads, profiles, sections),
+      **not** product listings. Not applicable; superseded by `search.menu`.
 
 ### v1.2 — Depth
 
@@ -314,9 +329,9 @@ From the merchant bid API, the following identifiers exist in Hotline's backend:
 |---|---|---|
 | Is there JSON-LD / `__NUXT__` on product pages? | **Answered: Both present** | schema.org/Product JSON-LD + 144 KB `window.__NUXT__` IIFE both present in SSR. JSON-LD has price range / rating; `__NUXT__` has individual offer prices and specs. |
 | Does the offers tab load via XHR or SSR? | **Answered: SSR** | All 46 offer nodes (with prices) are in the initial `__NUXT__` state. No XHR trigger needed. |
-| Is there a stable numeric product ID in the URL? | **Partially answered** | `product_id` integer exists in the merchant API and in legacy URLs (`/ua/.../12345/`). Canonical slug URLs do not contain it. Need to confirm whether a canonical product page exposes the ID in any attribute or link. |
-| What's the pagination mechanism for search? | **Still open** | Direct HTTP fetch of `?page=2` and `?p=2` returned 404. Must verify via live DevTools session. `?page=N` is the most common Nuxt.js convention. |
-| Are XHR endpoints available for search/offers? | **Still open** | Cloudflare blocked direct fetch attempts. Must use DevTools on a live browser session to intercept Network → Fetch/XHR traffic. |
+| Is there a stable numeric product ID in the URL? | **Answered** | `product_id` is the `sku` field in JSON-LD (exposed as `id` on `Product`) and the `_id` field in `__NUXT__` catalog state (exposed as `id` on `ProductSummary`). Both populated since v1. |
+| What's the pagination mechanism for search? | **Answered** | `?page=N` confirmed via `__NUXT__` `paginationInfo` fields (`lastPage`, `totalCount`, `itemsPerPage`). Implemented in v1.1. |
+| Are XHR endpoints available for search/offers? | **Answered (v1.1)** | `POST /svc/search/api/json-rpc` (`search.menu`) returns category breakdown for any query — no auth token needed. GraphQL endpoint (`/svc/frontend-api/graphql`) only handles auxiliary data (ads, profiles), not products. Category pages with `?q=` provide SSR-filtered results without any XHR. |
 
 ## 9. Release cadence
 
