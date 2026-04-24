@@ -40,6 +40,9 @@ func ParseProductHTML(html []byte) (*types.Product, error) {
 		p.Currency = jsonString(agg["priceCurrency"])
 		p.OffersCount = jsonInt(agg["offerCount"])
 	}
+	if p.Currency == "" {
+		p.Currency = "UAH"
+	}
 
 	if ar, ok := ld["aggregateRating"].(map[string]any); ok {
 		p.Rating = jsonFloat64(ar["ratingValue"])

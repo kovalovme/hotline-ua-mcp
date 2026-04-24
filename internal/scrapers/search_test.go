@@ -115,8 +115,11 @@ func TestBuildSearchURLFiltered(t *testing.T) {
 	if !strings.Contains(u, "priceMax=20000") {
 		t.Errorf("should contain priceMax=20000: got %q", u)
 	}
-	if !strings.Contains(u, "text=samsung") {
-		t.Errorf("should contain text=samsung: got %q", u)
+	if !strings.Contains(u, "q=samsung") {
+		t.Errorf("should contain q=samsung (server-side filter): got %q", u)
+	}
+	if strings.Contains(u, "text=") {
+		t.Errorf("must not use ?text= (server ignores it): got %q", u)
 	}
 
 	// page=1 should be omitted (default)
@@ -206,5 +209,61 @@ func TestParseSearchPage_MultiPage(t *testing.T) {
 	}
 	if pagination.NextPage == nil || *pagination.NextPage != 3 {
 		t.Errorf("NextPage: want 3, got %v", pagination.NextPage)
+	}
+}
+
+func TestBuildSearchURLFiltered_UsesQParam(t *testing.T) {
+	f := scrapers.SearchFilters{Page: 2, PriceMin: 5000, PriceMax: 20000}
+	u := scrapers.BuildSearchURLFiltered("samsung", f)
+	if strings.Contains(u, "text=") {
+		t.Errorf("URL should not use ?text= param (server-side ignored): got %q", u)
+	}
+	if !strings.Contains(u, "q=samsung") {
+		t.Errorf("URL should use ?q= for server-side filtering: got %q", u)
+	}
+}
+
+func TestBuildCategorySearchURL(t *testing.T) {
+	u := scrapers.BuildCategorySearchURL("/mobile/mobilnye-telefony-i-smartfony/", "iphone 17", scrapers.SearchFilters{})
+	if u != "https://hotline.ua/ua/mobile/mobilnye-telefony-i-smartfony/?q=iphone+17" {
+		t.Errorf("basic URL: got %q", u)
+	}
+
+	u2 := scrapers.BuildCategorySearchURL("/mobile/mobilnye-telefony-i-smartfony/", "samsung", scrapers.SearchFilters{Page: 2, PriceMax: 15000})
+	if !strings.Contains(u2, "q=samsung") {
+		t.Errorf("should contain q=samsung: got %q", u2)
+	}
+	if !strings.Contains(u2, "page=2") {
+		t.Errorf("should contain page=2: got %q", u2)
+	}
+	if !strings.Contains(u2, "priceMax=15000") {
+		t.Errorf("should contain priceMax=15000: got %q", u2)
+	}
+}
+
+func TestParseSearchMenuResponse(t *testing.T) {
+	body := []byte(`{"jsonrpc":"2.0","id":1,"result":{"products":{"sections":[{"sectionTitle":"Smartphones","catalogs":[{"id":"11","catalogTitle":"Phones","url":"/mobile/mobilnye-telefony-i-smartfony/","total":491},{"id":"599","catalogTitle":"Cases","url":"/mobile/chehly/","total":1271}]}]}}}`)
+	path, err := scrapers.ParseSearchMenuResponse(body)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if path != "/mobile/mobilnye-telefony-i-smartfony/" {
+		t.Errorf("category path: got %q, want /mobile/mobilnye-telefony-i-smartfony/", path)
+	}
+}
+
+func TestParseSearchMenuResponse_Empty(t *testing.T) {
+	body := []byte(`{"jsonrpc":"2.0","id":1,"result":{"products":{"sections":[]}}}`)
+	_, err := scrapers.ParseSearchMenuResponse(body)
+	if err == nil {
+		t.Error("expected error for empty sections, got nil")
+	}
+}
+
+func TestParseSearchMenuResponse_NoCatalogs(t *testing.T) {
+	body := []byte(`{"jsonrpc":"2.0","id":1,"result":{"products":{"sections":[{"sectionTitle":"X","catalogs":[]}]}}}`)
+	_, err := scrapers.ParseSearchMenuResponse(body)
+	if err == nil {
+		t.Error("expected error for section with no catalogs, got nil")
 	}
 }

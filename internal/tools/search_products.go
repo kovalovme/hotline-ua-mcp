@@ -12,6 +12,8 @@ import (
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 )
 
+const searchMenuURL = httpclient.BaseURL + "/svc/search/api/json-rpc"
+
 type SearchProductsArgs struct {
 	Query    string  `json:"query" jsonschema:"product search query in Ukrainian or English, e.g. 'iPhone 15'"`
 	Limit    int     `json:"limit,omitempty" jsonschema:"max results to return (default 10, max 40)"`
@@ -22,6 +24,7 @@ type SearchProductsArgs struct {
 
 type SearchProductsResult struct {
 	Query      string                 `json:"query"`
+	Category   string                 `json:"category,omitempty"`
 	Count      int                    `json:"count"`
 	Results    []types.ProductSummary `json:"results"`
 	Pagination types.PaginationInfo   `json:"pagination"`
@@ -44,12 +47,28 @@ func SearchProducts(client *httpclient.Client) func(context.Context, *mcp.CallTo
 			page = 1
 		}
 
+		// Discover the best category for this query via search.menu.
+		menuBody, _ := json.Marshal(map[string]any{
+			"jsonrpc": "2.0",
+			"method":  "search.menu",
+			"params":  map[string]any{"q": args.Query, "lang": "uk", "vendor_ids": nil},
+			"id":      1,
+		})
+		menuResp, err := client.PostJSON(ctx, searchMenuURL, menuBody)
+		if err != nil {
+			return nil, nil, fmt.Errorf("search menu: %w", err)
+		}
+		categoryPath, err := scrapers.ParseSearchMenuResponse(menuResp)
+		if err != nil {
+			return nil, nil, err
+		}
+
 		f := scrapers.SearchFilters{
 			Page:     page,
 			PriceMin: args.PriceMin,
 			PriceMax: args.PriceMax,
 		}
-		u := scrapers.BuildSearchURLFiltered(args.Query, f)
+		u := scrapers.BuildCategorySearchURL(categoryPath, args.Query, f)
 		body, err := client.Get(ctx, u)
 		if err != nil {
 			return nil, nil, err
@@ -59,13 +78,13 @@ func SearchProducts(client *httpclient.Client) func(context.Context, *mcp.CallTo
 		if err != nil {
 			return nil, nil, err
 		}
-		results = scrapers.FilterByQuery(results, args.Query)
 		if len(results) > limit {
 			results = results[:limit]
 		}
 
 		payload := SearchProductsResult{
 			Query:      args.Query,
+			Category:   categoryPath,
 			Count:      len(results),
 			Results:    results,
 			Pagination: pagination,

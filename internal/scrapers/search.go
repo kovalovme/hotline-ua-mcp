@@ -1,6 +1,7 @@
 package scrapers
 
 import (
+	"encoding/json"
 	"fmt"
 	"net/url"
 	"strconv"
@@ -31,14 +32,21 @@ func BuildSearchURL(query string) string {
 	return BuildSearchURLFiltered(query, SearchFilters{})
 }
 
-// BuildSearchURLFiltered builds a search URL with optional pagination and price filters.
-//
-// Pagination uses ?page=N (standard Nuxt.js convention — confirmed as most
-// likely candidate; verify via DevTools if live results differ).
-// Price filter params are ?priceMin=N&priceMax=M.
+// BuildSearchURLFiltered builds a smartphones-category search URL with optional
+// pagination and price filters. Uses ?q= for server-side keyword filtering
+// (confirmed via DevTools 2026-04-24: ?q= filters SSR __NUXT__ state;
+// ?text= does not).
 func BuildSearchURLFiltered(query string, f SearchFilters) string {
+	return BuildCategorySearchURL("/mobile/mobilnye-telefony-i-smartfony/", query, f)
+}
+
+// BuildCategorySearchURL builds a category URL with server-side keyword filtering
+// and optional pagination/price filters. categoryPath is the path segment returned
+// by ParseSearchMenuResponse (e.g. "/mobile/mobilnye-telefony-i-smartfony/").
+func BuildCategorySearchURL(categoryPath, query string, f SearchFilters) string {
+	base := "https://hotline.ua/ua" + "/" + strings.Trim(categoryPath, "/") + "/"
 	v := url.Values{}
-	v.Set("text", strings.TrimSpace(query))
+	v.Set("q", strings.TrimSpace(query))
 	if f.Page > 1 {
 		v.Set("page", strconv.Itoa(f.Page))
 	}
@@ -48,7 +56,34 @@ func BuildSearchURLFiltered(query string, f SearchFilters) string {
 	if f.PriceMax > 0 {
 		v.Set("priceMax", strconv.FormatFloat(f.PriceMax, 'f', 0, 64))
 	}
-	return "https://hotline.ua/ua/mobile/mobilnye-telefony-i-smartfony/?" + v.Encode()
+	return base + "?" + v.Encode()
+}
+
+// ParseSearchMenuResponse extracts the first category path from a
+// POST /svc/search/api/json-rpc search.menu response. The returned path
+// (e.g. "/mobile/mobilnye-telefony-i-smartfony/") can be passed directly
+// to BuildCategorySearchURL.
+func ParseSearchMenuResponse(body []byte) (string, error) {
+	var resp struct {
+		Result struct {
+			Products struct {
+				Sections []struct {
+					Catalogs []struct {
+						URL string `json:"url"`
+					} `json:"catalogs"`
+				} `json:"sections"`
+			} `json:"products"`
+		} `json:"result"`
+	}
+	if err := json.Unmarshal(body, &resp); err != nil {
+		return "", fmt.Errorf("parse search menu: %w", err)
+	}
+	for _, sec := range resp.Result.Products.Sections {
+		if len(sec.Catalogs) > 0 && sec.Catalogs[0].URL != "" {
+			return sec.Catalogs[0].URL, nil
+		}
+	}
+	return "", fmt.Errorf("search menu: no categories found for query")
 }
 
 // BuildCategoryURL constructs a category browse URL with optional pagination
