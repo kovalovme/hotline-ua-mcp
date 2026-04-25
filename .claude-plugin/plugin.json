@@ -1,7 +1,7 @@
 {
   "$schema": "https://json.schemastore.org/claude-code-plugin.json",
   "name": "hotline-ua",
-  "version": "1.0.0",
+  "version": "1.2",
   "description": "Search Ukrainian price-comparison site hotline.ua from Claude Code: find products, compare prices, list seller offers.",
   "author": {
     "name": "kovalovme"
